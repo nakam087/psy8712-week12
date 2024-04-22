@@ -19,6 +19,8 @@ library(wordcloud)
 library(ldatuning)
 library(topicmodels)
 library(tidytext)
+library(haven)
+library(caret)
 ```
 
 # Data Import and Cleaning
@@ -118,18 +120,66 @@ topics_tbl<- tibble(tidy(lda_results,matrix="gamma")%>%
                       mutate(original= week12_tbl$post[doc_id])) #get original posts filtered by doc_id
 
 #answering questions
-lda_betas %>% 
-  group_by(topic)%>%
-  top_n(10,beta)%>%
-  arrange(topic,-beta)%>%
-  View
-# using the beta matrix alone, I would guess that topic 1 are fact/discussion related (discussion, think, etc), topic 2 is related to academia (school, grad), topic 3 is related to applications/events (research, consult, siop), topic 4 is advice (job, career, etc), and topic 5 are opinions (path, idea, etc).
+#lda_betas %>% 
+  #group_by(topic)%>%
+  #top_n(10,beta)%>%
+  #arrange(topic,-beta)%>%
+  #View
 
-#
+# Using the beta matrix alone, I would guess that topic 1 are fact/discussion related (discussion, think, etc), topic 2 is related to academia (school, grad), topic 3 is related to applications/events (research, consult, siop), topic 4 is advice (job, career, etc), and topic 5 are opinions (path, idea, etc).
+
+# I feel like some of them are close, but I am interested to see what our analysis brings because I think it's a bit hard to tell how well I did. You might be able to count this as content validity or face validity (which is kind of fake)
 
 ```
+
+```{r}
+#creating new tibble for analysis
+final_tbl<-tibble(topics_tbl,
+                  upvotes=week12_tbl$upvotes[doc_id]) %>%
+  mutate(topic=as.factor(final_tbl$topic))
+
+#statistical learning analysis
+summary(lm(upvotes~topic,data=final_tbl)) #there was no significant difference found, meaning that upvotes did not significantly differ by topic
+
+# machine learning analysis with elastic net
+#creating test/train sets
+split <- createDataPartition(final_tbl$upvotes,
+                                       p = .25,
+                                       list = T)$Resample1
+test_tbl <- final_tbl[split,]
+train_tbl <- final_tbl[-split,]
+
+folds<-createFolds(train_tbl$upvotes) #creating folds 
+
+elastic_net<- train(
+  upvotes ~ topic,
+  train_tbl,
+  method="glmnet",
+  na.action = na.pass,
+  preProcess = c("center","scale","zv","nzv","medianImpute"),
+  trControl = trainControl(method="cv", 
+                           number=10, 
+                           verboseIter=T, 
+                           indexOut = folds)
+)
+cv_m2 <- max(elastic_net$results$Rsquared)
+holdout_m2 <- cor(
+  predict(elastic_net, test_tbl, na.action = na.pass),
+  test_tbl$upvotes)^2
+cv_m2
+holdout_m2
+#the CV was around 0.048 and the holdout was around 0.0024, which means that this model did a very bad job predicting topic from upvotes for both the training and testing data. This aligns with what we found in the statistical analysis, which is that upvotes cannot predict the topic.
+```
+
 # Visualization
 ```{r}
-
+#creating a wordcloud
+DTM_tbl <- io_dtm %>% as.matrix %>% as_tibble
+wordcloud(
+  words = names(DTM_tbl),
+  freq = colSums(DTM_tbl),
+  colors = brewer.pal(9,"Dark2")
+)
+#it seems like the most prominent words have to do with work, like jobs or career, which makes a lot of sense. People might be trying to find jobs in the field, get more information on what kind of jobs one can get within IO, or be talking about major topics within IO (job analysis, job domain, etc). Other frequent words are related to reddit forums in general, I would guess, as they relate to discussion. 
 ```
 
