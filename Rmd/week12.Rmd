@@ -1,0 +1,61 @@
+---
+title: "week12"
+author: "Sarah Nakamoto"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+# Script Settings and Resources
+```{r}
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+library(tidyverse)
+library(RedditExtractoR)
+library(tm)
+library(textstem)
+library(qdap)
+```
+
+# Data Import and Cleaning
+```{r}
+#making the data csv
+io_df<-find_thread_urls(subreddit="IOPsychology", period='year') #getting posts from r/IOPsychology for 1 year
+
+content_df<-get_thread_content(io_df$url)#parsing urls from rstats_df to retrieve metadata and comments
+
+#create tibble of titles and number of upvotes (stored within threads of content_df)
+week12_tbl <- tibble(
+  post = content_df$threads$title,
+  upvotes = content_df$threads$upvotes,
+)
+
+#writing a csv
+#write.csv(week12_tbl,"week12.csv")
+```
+```{r}
+#making a corpus
+data<-read_csv("../data/week12.csv")
+io_corpus_original<-VCorpus(VectorSource(data$post))
+
+#preprocessing
+io_corpus<-io_corpus_original %>%
+  tm_map(content_transformer(replace_abbreviation))%>%
+  tm_map(content_transformer(replace_contraction)) %>%
+  tm_map(content_transformer(str_to_lower)) %>%
+  tm_map(removeNumbers) %>%
+  tm_map(removePunctuation) %>%
+  tm_map(removeWords, c(stopwords("en"), "io", "industrial organizational psychology", "io psychology", "riopsychology", "io psych", "io-related", "/r/IOpsychology", "industrial and organizational psychology","iop")) %>%
+  tm_map(stripWhitespace) %>%
+  tm_map(stemDocument, language="english")%>%
+  tm_map(content_transformer(lemmatize_strings)) #used this because when tried to specify, ran into errors 
+
+
+#function to test if processing is working
+compare_them<-function() {
+  casenum <- sample(1:length(io_corpus), 1)
+  print(io_corpus_original[[casenum]]$content)
+  print(io_corpus[[casenum]]$content)
+}
+
+compare_them() #testing various options 
+```
+
