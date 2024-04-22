@@ -59,15 +59,13 @@ io_corpus<-io_corpus_original %>%
   tm_map(stripWhitespace) %>%
   tm_map(content_transformer(lemmatize_strings)) #used this because when tried to specify, ran into errors 
 
-
-#function to test if processing is working
-compare_them<-function() {
-  casenum <- sample(1:length(io_corpus), 1)
-  print(io_corpus_original[[casenum]]$content)
-  print(io_corpus[[casenum]]$content)
+compare_them<-function(corpus_og,corpus_new){
+  casenum <- sample(1:length(corpus_og),1)
+  print(corpus_og[[casenum]]$content)
+  print(corpus_new[[casenum]]$content)
 }
 
-compare_them() #testing various options 
+compare_them(io_corpus_original,io_corpus) #testing various options 
 ```
 # Analysis
 ```{r}
