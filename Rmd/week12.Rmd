@@ -2,17 +2,23 @@
 title: "week12"
 author: "Sarah Nakamoto"
 date: "`r Sys.Date()`"
-output: html_document
+output: pdf_document
 ---
 
 # Script Settings and Resources
 ```{r}
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+#downloaded libraries
 library(tidyverse)
 library(RedditExtractoR)
 library(tm)
 library(textstem)
 library(qdap)
+library(RWeka)
+library(wordcloud)
+library(ldatuning)
+library(topicmodels)
+library(tidytext)
 ```
 
 # Data Import and Cleaning
@@ -36,16 +42,19 @@ week12_tbl <- tibble(
 data<-read_csv("../data/week12.csv")
 io_corpus_original<-VCorpus(VectorSource(data$post))
 
-#preprocessing
+#preprocessing, kept similar order to the example in the slides
+# got rid of capitalization, numbers, punctuations, whitespace
+#replaced abbreviations
+#removed stopwords and io-related things (kept testing with compare_them function until I felt I had most of them)
+#didn't include stem processor because it might mess up my word cloud
 io_corpus<-io_corpus_original %>%
   tm_map(content_transformer(replace_abbreviation))%>%
   tm_map(content_transformer(replace_contraction)) %>%
   tm_map(content_transformer(str_to_lower)) %>%
   tm_map(removeNumbers) %>%
   tm_map(removePunctuation) %>%
-  tm_map(removeWords, c(stopwords("en"), "io", "industrial organizational psychology", "io psychology", "riopsychology", "io psych", "io-related", "/r/IOpsychology", "industrial and organizational psychology","iop")) %>%
+  tm_map(removeWords, c(stopwords("en"), "io", "industrial organizational psychology", "io psychology", "riopsychology", "io psych", "io-related", "/r/IOpsychology", "industrial and organizational psychology","iop", "iorelated", "organizational psychology", "org psych")) %>%
   tm_map(stripWhitespace) %>%
-  tm_map(stemDocument, language="english")%>%
   tm_map(content_transformer(lemmatize_strings)) #used this because when tried to specify, ran into errors 
 
 
@@ -57,5 +66,70 @@ compare_them<-function() {
 }
 
 compare_them() #testing various options 
+```
+# Analysis
+```{r}
+# creating DTM
+#stole from slides, made bigram
+bigram_tokenizer <- function(x) NGramTokenizer(x, Weka_control(min=1, max=2))
+#ran into errors, must delete empty rows
+io_dtm_first <- DocumentTermMatrix(io_corpus, control = list(tokenize = bigram_tokenizer))
+tokenCounts <- apply(io_dtm_first, 1, sum)
+io_dtm <- io_dtm_first[tokenCounts > 0, ]
+
+#uncomment to view dtm
+# io_dtm %>% as.matrix %>% as_tibble %>% View 
+
+#spare terms eliminated ver
+io_slim_dtm<- removeSparseTerms(io_dtm,0.998) #started with high specificity, this was the "closest" to the 2:1-3:1 n:k ratio
+#io_slim_dtm %>% as.matrix %>% as_tibble %>% View 
+#io_slim_dtm$ncol
+#io_dtm$ncol
+```
+```{r}
+#tuning an LDA model
+
+#determining the number of topics we need to extract
+DTM_tune <- FindTopicsNumber(
+  io_dtm,
+  topics = seq(2,15,1), #used this from the slides
+  metrics = c(
+    "Griffiths2004",
+    "CaoJuan2009",
+    "Arun2010",
+    "Deveaud2014"),
+  verbose = T
+)
+FindTopicsNumber_plot(DTM_tune) # it looks like about 5?
+
+#running and exploring the lda
+lda_results <-LDA(io_dtm,5) #5 topics
+lda_betas<- tidy(lda_results, matrix="beta") #probability a word belongs to topic
+lda_gammas<- tidy(lda_results, matrix="gamma") #probability a document contains topic
+
+#making posts into topics
+topics_tbl<- tibble(tidy(lda_results,matrix="gamma")%>%
+                      group_by(document) %>% #grouping by document
+                      top_n(1, gamma) %>% #highest prob per document
+                      ungroup() %>% #clear grouping
+                      rename(doc_id = document, probability = gamma) %>% #creating doc id
+                      mutate(doc_id = as.numeric(doc_id)) %>% 
+                      arrange(doc_id)%>% #arrange by doc id
+                      mutate(original= week12_tbl$post[doc_id])) #get original posts filtered by doc_id
+
+#answering questions
+lda_betas %>% 
+  group_by(topic)%>%
+  top_n(10,beta)%>%
+  arrange(topic,-beta)%>%
+  View
+# using the beta matrix alone, I would guess that topic 1 are fact/discussion related (discussion, think, etc), topic 2 is related to academia (school, grad), topic 3 is related to applications/events (research, consult, siop), topic 4 is advice (job, career, etc), and topic 5 are opinions (path, idea, etc).
+
+#
+
+```
+# Visualization
+```{r}
+
 ```
 
